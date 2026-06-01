@@ -1,0 +1,99 @@
+diff --git a/src/main/java/com/peng/aspect/MyCacheAspect.java b/src/main/java/com/peng/aspect/MyCacheAspect.java
+index 36f01cb..44d7a6b 100644
+--- a/src/main/java/com/peng/aspect/MyCacheAspect.java
++++ b/src/main/java/com/peng/aspect/MyCacheAspect.java
+@@ -18,6 +18,30 @@ import org.springframework.stereotype.Component;
+ public class MyCacheAspect {
+     @Autowired
+     private RedisUtil redisUtil;
++    
++    @Autowired
++    private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
++
++    @org.aspectj.lang.annotation.After("execution(public * com.peng.service.ICacheService.clearCommentCache(..)) && args(blId)")
++    public void clearCommentCache(Long blId) {
++        java.util.Set<String> keys1 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getIndexPage*");
++        if (keys1 != null && !keys1.isEmpty()) {
++            redisTemplate.delete(keys1);
++        }
++        redisUtil.del("com.peng.service.Impl.CacheServiceImpl.getCommentNum");
++        java.util.Set<String> keys2 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getPageByType*");
++        if (keys2 != null && !keys2.isEmpty()) {
++            redisTemplate.delete(keys2);
++        }
++        java.util.Set<String> keys3 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getPageByTag*");
++        if (keys3 != null && !keys3.isEmpty()) {
++            redisTemplate.delete(keys3);
++        }
++        java.util.Set<String> keys4 = redisTemplate.keys("*-" + blId + "*");
++        if (keys4 != null && !keys4.isEmpty()) {
++            redisTemplate.delete(keys4);
++        }
++    }
+ 
+     private String createCacheKey(ProceedingJoinPoint jp) {
+         Signature signature = jp.getSignature();
+diff --git a/src/main/java/com/peng/controller/CommentControllers.java b/src/main/java/com/peng/controller/CommentControllers.java
+index 456f5c2..fa5df55 100644
+--- a/src/main/java/com/peng/controller/CommentControllers.java
++++ b/src/main/java/com/peng/controller/CommentControllers.java
+@@ -52,7 +52,7 @@ public class CommentControllers {
+         String ipAddress = IpUtil.getIpAddress(request);
+         comment.setIpAddress(ipAddress);
+         iCommentService.saveOrUpdate(comment);
+-        rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", formatWxMsg(comment));
++        rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", comment);
+         return "redirect:/comments/" + comment.getBlId();
+     }
+ 
+diff --git a/src/main/java/com/peng/service/ICacheService.java b/src/main/java/com/peng/service/ICacheService.java
+index 8797899..8cf1f12 100644
+--- a/src/main/java/com/peng/service/ICacheService.java
++++ b/src/main/java/com/peng/service/ICacheService.java
+@@ -20,4 +20,7 @@ public interface ICacheService {
+     PageInfo<Blog> getPageByTag(Integer pageNum,Long taId);
+     Map findTimeLine();
+     List<Friend> getIndexFriends();
++    
++    default void clearCommentCache(Long blId) {
++    }
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+index 062500d..5f13ecc 100644
+--- a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+@@ -8,6 +8,12 @@ import com.github.pagehelper.PageInfo;
+ import com.peng.entity.Comment;
+ import com.peng.mapper.CommentMapper;
+ import com.peng.service.ICommentService;
++import com.peng.service.ICacheService;
++import org.springframework.amqp.rabbit.annotation.Exchange;
++import org.springframework.amqp.rabbit.annotation.Queue;
++import org.springframework.amqp.rabbit.annotation.QueueBinding;
++import org.springframework.amqp.rabbit.annotation.RabbitListener;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+@@ -15,6 +21,21 @@ import java.util.List;
+ 
+ @Service
+ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
++
++    @Autowired
++    private ICacheService iCacheService;
++
++    @RabbitListener(bindings = @QueueBinding(
++            value = @Queue(value = "comment.cache.queue", durable = "true"),
++            exchange = @Exchange(value = "msg-event-exchange", type = "topic", ignoreDeclarationExceptions = "true"),
++            key = "msg.wx-pn"
++    ))
++    public void clearCommentCache(Comment comment) {
++        if (comment != null && comment.getBlId() != null) {
++            iCacheService.clearCommentCache(comment.getBlId());
++        }
++    }
++
+     @Override
+     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
+         PageHelper.startPage(pageNum,pageSize);

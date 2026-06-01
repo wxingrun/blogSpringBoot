@@ -8,6 +8,12 @@ import com.github.pagehelper.PageInfo;
 import com.peng.entity.Comment;
 import com.peng.mapper.CommentMapper;
 import com.peng.service.ICommentService;
+import com.peng.service.ICacheService;
+import org.springframework.amqp.rabbit.annotation.Exchange;
+import org.springframework.amqp.rabbit.annotation.Queue;
+import org.springframework.amqp.rabbit.annotation.QueueBinding;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -15,6 +21,21 @@ import java.util.List;
 
 @Service
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
+
+    @Autowired
+    private ICacheService iCacheService;
+
+    @RabbitListener(bindings = @QueueBinding(
+            value = @Queue(value = "comment.cache.queue", durable = "true"),
+            exchange = @Exchange(value = "msg-event-exchange", type = "topic", ignoreDeclarationExceptions = "true"),
+            key = "msg.wx-pn"
+    ))
+    public void clearCommentCache(Comment comment) {
+        if (comment != null && comment.getBlId() != null) {
+            iCacheService.clearCommentCache(comment.getBlId());
+        }
+    }
+
     @Override
     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
         PageHelper.startPage(pageNum,pageSize);

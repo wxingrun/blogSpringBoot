@@ -18,6 +18,30 @@ import org.springframework.stereotype.Component;
 public class MyCacheAspect {
     @Autowired
     private RedisUtil redisUtil;
+    
+    @Autowired
+    private org.springframework.data.redis.core.RedisTemplate<String, Object> redisTemplate;
+
+    @org.aspectj.lang.annotation.After("execution(public * com.peng.service.ICacheService.clearCommentCache(..)) && args(blId)")
+    public void clearCommentCache(Long blId) {
+        java.util.Set<String> keys1 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getIndexPage*");
+        if (keys1 != null && !keys1.isEmpty()) {
+            redisTemplate.delete(keys1);
+        }
+        redisUtil.del("com.peng.service.Impl.CacheServiceImpl.getCommentNum");
+        java.util.Set<String> keys2 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getPageByType*");
+        if (keys2 != null && !keys2.isEmpty()) {
+            redisTemplate.delete(keys2);
+        }
+        java.util.Set<String> keys3 = redisTemplate.keys("com.peng.service.Impl.CacheServiceImpl.getPageByTag*");
+        if (keys3 != null && !keys3.isEmpty()) {
+            redisTemplate.delete(keys3);
+        }
+        java.util.Set<String> keys4 = redisTemplate.keys("*-" + blId + "*");
+        if (keys4 != null && !keys4.isEmpty()) {
+            redisTemplate.delete(keys4);
+        }
+    }
 
     private String createCacheKey(ProceedingJoinPoint jp) {
         Signature signature = jp.getSignature();

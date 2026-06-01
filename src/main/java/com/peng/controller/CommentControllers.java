@@ -52,7 +52,7 @@ public class CommentControllers {
         String ipAddress = IpUtil.getIpAddress(request);
         comment.setIpAddress(ipAddress);
         iCommentService.saveOrUpdate(comment);
-        rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", formatWxMsg(comment));
+        rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", comment);
         return "redirect:/comments/" + comment.getBlId();
     }
 
