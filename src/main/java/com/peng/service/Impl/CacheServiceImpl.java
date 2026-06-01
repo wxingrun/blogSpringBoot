@@ -3,6 +3,7 @@ package com.peng.service.Impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.github.pagehelper.PageInfo;
 import com.peng.aspect.MyCache;
+import com.peng.aspect.MyCacheAspect;
 import com.peng.entity.*;
 import com.peng.service.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,8 @@ public class CacheServiceImpl implements ICacheService {
     private ITagService iTagService;
     @Autowired
     private IFriendService iFriendService;
+    @Autowired
+    private MyCacheAspect myCacheAspect;
 
     @Override
     @MyCache
@@ -102,6 +105,12 @@ public class CacheServiceImpl implements ICacheService {
     @MyCache
     public List<Friend> getIndexFriends() {
         return iFriendService.list();
+    }
+
+    @Override
+    public void clearCommentRelatedCache(Long blId) {
+        myCacheAspect.deleteCache(CacheServiceImpl.class, "getCommentNum");
+        myCacheAspect.deleteCacheByPrefix(CacheServiceImpl.class, "getIndexPage");
     }
 
 }

@@ -1,0 +1,230 @@
+diff --git a/src/main/java/com/peng/aspect/MyCacheAspect.java b/src/main/java/com/peng/aspect/MyCacheAspect.java
+index 36f01cb..1752226 100644
+--- a/src/main/java/com/peng/aspect/MyCacheAspect.java
++++ b/src/main/java/com/peng/aspect/MyCacheAspect.java
+@@ -9,8 +9,11 @@ import org.aspectj.lang.annotation.Around;
+ import org.aspectj.lang.annotation.Aspect;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.core.annotation.Order;
++import org.springframework.data.redis.core.RedisTemplate;
+ import org.springframework.stereotype.Component;
+ 
++import java.util.Set;
++
+ 
+ @Slf4j
+ @Aspect
+@@ -18,32 +21,48 @@ import org.springframework.stereotype.Component;
+ public class MyCacheAspect {
+     @Autowired
+     private RedisUtil redisUtil;
++    @Autowired
++    private RedisTemplate<String, Object> redisTemplate;
+ 
+     private String createCacheKey(ProceedingJoinPoint jp) {
+         Signature signature = jp.getSignature();
+-        String methodName = signature.getName();
+-        String className = signature.getDeclaringTypeName();
+-        StringBuffer sbKey = new StringBuffer();
++        return createCacheKey(signature.getDeclaringTypeName(), signature.getName(), jp.getArgs());
++    }
++
++    public String createCacheKey(Class<?> targetClass, String methodName, Object... args) {
++        return createCacheKey(targetClass.getName(), methodName, args);
++    }
++
++    public void deleteCache(Class<?> targetClass, String methodName, Object... args) {
++        redisUtil.del(createCacheKey(targetClass, methodName, args));
++    }
++
++    public void deleteCacheByPrefix(Class<?> targetClass, String methodName) {
++        String prefix = targetClass.getName() + "." + methodName;
++        Set<String> keys = redisTemplate.keys(prefix + "*");
++        if (keys != null && !keys.isEmpty()) {
++            redisTemplate.delete(keys);
++        }
++    }
++
++    private String createCacheKey(String className, String methodName, Object... args) {
++        StringBuilder sbKey = new StringBuilder();
+         sbKey.append(className);
+         sbKey.append(".");
+         sbKey.append(methodName);
+-        Object[] args = jp.getArgs();//方法参数值
+-        for (Object object : args) {
+-            sbKey.append("-");
+-            sbKey.append(object);
++        if (args != null) {
++            for (Object object : args) {
++                sbKey.append("-");
++                sbKey.append(object);
++            }
+         }
+         return sbKey.toString();
+     }
+ 
+-
+-    //@Around("@annotation(myCache)")
+     @Order(1)
+     @Around("execution(public * com.peng.service.Impl..*(..)) && @annotation(myCache)")
+     public Object around(ProceedingJoinPoint jp, MyCache myCache) {
+-//        long startTime = System.currentTimeMillis();
+-        //生成Redis中的key
+         String key = createCacheKey(jp);
+-        //如果有缓存直接返回，没有正常执行并写入缓存
+         try {
+             if (redisUtil.hasKey(key)) {
+                 return redisUtil.get(key);
+@@ -55,8 +74,6 @@ public class MyCacheAspect {
+         } catch (Throwable t) {
+             log.error(t.toString());
+             return null;
+-        } finally {
+-//            log.info("{}  方法执行时间： {}",jp.getSignature().getName(),System.currentTimeMillis()-startTime);
+         }
+     }
+ 
+diff --git a/src/main/java/com/peng/controller/CommentControllers.java b/src/main/java/com/peng/controller/CommentControllers.java
+index 456f5c2..3c47aaa 100644
+--- a/src/main/java/com/peng/controller/CommentControllers.java
++++ b/src/main/java/com/peng/controller/CommentControllers.java
+@@ -1,21 +1,19 @@
+ package com.peng.controller;
+ 
+ 
+-import com.alibaba.fastjson.JSON;
+ import com.peng.aspect.MyLog;
+ import com.peng.entity.Blog;
+ import com.peng.entity.Comment;
+ import com.peng.service.IBlogService;
++import com.peng.service.ICacheService;
+ import com.peng.service.ICommentService;
+ import com.peng.util.IpUtil;
+-import com.rabbitmq.tools.json.JSONUtil;
+ import org.springframework.amqp.rabbit.core.RabbitTemplate;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Controller;
+ import org.springframework.ui.Model;
+ import org.springframework.web.bind.annotation.*;
+ 
+-import javax.servlet.ServletRequest;
+ import javax.servlet.http.HttpServletRequest;
+ 
+ 
+@@ -25,10 +23,12 @@ public class CommentControllers {
+     @Autowired
+     private ICommentService iCommentService;
+ 
+-
+     @Autowired
+     private IBlogService iBlogService;
+ 
++    @Autowired
++    private ICacheService iCacheService;
++
+     @Autowired
+     private RabbitTemplate rabbitTemplate;
+ 
+@@ -46,14 +46,18 @@ public class CommentControllers {
+     @MyLog
+     @PostMapping("/comments")
+     public String postComments(Comment comment, HttpServletRequest request) {
+-        //保存评论
+-        if (comment.getParentId() <= -1)
++        if (comment.getParentId() != null && comment.getParentId() <= -1) {
+             comment.setParentId(null);
++        }
+         String ipAddress = IpUtil.getIpAddress(request);
+         comment.setIpAddress(ipAddress);
+-        iCommentService.saveOrUpdate(comment);
++        boolean saved = iCommentService.saveOrUpdate(comment);
++        if (!saved) {
++            throw new RuntimeException("评论提交失败！");
++        }
+         rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", formatWxMsg(comment));
+-        return "redirect:/comments/" + comment.getBlId();
++        iCacheService.clearCommentRelatedCache(comment.getBlId());
++        return "redirect:/comments/" + comment.getBlId() + "?t=" + System.currentTimeMillis();
+     }
+ 
+     private String formatWxMsg(Comment comment) {
+diff --git a/src/main/java/com/peng/service/ICacheService.java b/src/main/java/com/peng/service/ICacheService.java
+index 8797899..7e90577 100644
+--- a/src/main/java/com/peng/service/ICacheService.java
++++ b/src/main/java/com/peng/service/ICacheService.java
+@@ -20,4 +20,5 @@ public interface ICacheService {
+     PageInfo<Blog> getPageByTag(Integer pageNum,Long taId);
+     Map findTimeLine();
+     List<Friend> getIndexFriends();
++    void clearCommentRelatedCache(Long blId);
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+index 6f9b627..9acb1d5 100644
+--- a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+@@ -3,6 +3,7 @@ package com.peng.service.Impl;
+ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+ import com.github.pagehelper.PageInfo;
+ import com.peng.aspect.MyCache;
++import com.peng.aspect.MyCacheAspect;
+ import com.peng.entity.*;
+ import com.peng.service.*;
+ import org.springframework.beans.factory.annotation.Autowired;
+@@ -25,6 +26,8 @@ public class CacheServiceImpl implements ICacheService {
+     private ITagService iTagService;
+     @Autowired
+     private IFriendService iFriendService;
++    @Autowired
++    private MyCacheAspect myCacheAspect;
+ 
+     @Override
+     @MyCache
+@@ -104,4 +107,10 @@ public class CacheServiceImpl implements ICacheService {
+         return iFriendService.list();
+     }
+ 
++    @Override
++    public void clearCommentRelatedCache(Long blId) {
++        myCacheAspect.deleteCache(CacheServiceImpl.class, "getCommentNum");
++        myCacheAspect.deleteCacheByPrefix(CacheServiceImpl.class, "getIndexPage");
++    }
++
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+index 062500d..fbc7480 100644
+--- a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+@@ -7,7 +7,9 @@ import com.github.pagehelper.PageHelper;
+ import com.github.pagehelper.PageInfo;
+ import com.peng.entity.Comment;
+ import com.peng.mapper.CommentMapper;
++import com.peng.service.ICacheService;
+ import com.peng.service.ICommentService;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+@@ -15,6 +17,9 @@ import java.util.List;
+ 
+ @Service
+ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
++    @Autowired
++    private ICacheService iCacheService;
++
+     @Override
+     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
+         PageHelper.startPage(pageNum,pageSize);
+@@ -25,7 +30,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
+ 
+     @Override
+     public boolean setDeleted(Long coId, boolean flag) {
+-        return this.update(new LambdaUpdateWrapper<Comment>().eq(Comment::getCoId, coId).set(Comment::getIsDelete, flag));
++        Comment comment = this.getById(coId);
++        boolean updated = this.update(new LambdaUpdateWrapper<Comment>().eq(Comment::getCoId, coId).set(Comment::getIsDelete, flag));
++        if (updated && comment != null) {
++            iCacheService.clearCommentRelatedCache(comment.getBlId());
++        }
++        return updated;
+     }
+ 
+ }

@@ -7,7 +7,9 @@ import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.peng.entity.Comment;
 import com.peng.mapper.CommentMapper;
+import com.peng.service.ICacheService;
 import com.peng.service.ICommentService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -15,6 +17,9 @@ import java.util.List;
 
 @Service
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
+    @Autowired
+    private ICacheService iCacheService;
+
     @Override
     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
         PageHelper.startPage(pageNum,pageSize);
@@ -25,7 +30,12 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     @Override
     public boolean setDeleted(Long coId, boolean flag) {
-        return this.update(new LambdaUpdateWrapper<Comment>().eq(Comment::getCoId, coId).set(Comment::getIsDelete, flag));
+        Comment comment = this.getById(coId);
+        boolean updated = this.update(new LambdaUpdateWrapper<Comment>().eq(Comment::getCoId, coId).set(Comment::getIsDelete, flag));
+        if (updated && comment != null) {
+            iCacheService.clearCommentRelatedCache(comment.getBlId());
+        }
+        return updated;
     }
 
 }

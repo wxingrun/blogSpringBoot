@@ -9,7 +9,10 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
+
+import java.util.Set;
 
 
 @Slf4j
@@ -18,32 +21,48 @@ import org.springframework.stereotype.Component;
 public class MyCacheAspect {
     @Autowired
     private RedisUtil redisUtil;
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
 
     private String createCacheKey(ProceedingJoinPoint jp) {
         Signature signature = jp.getSignature();
-        String methodName = signature.getName();
-        String className = signature.getDeclaringTypeName();
-        StringBuffer sbKey = new StringBuffer();
+        return createCacheKey(signature.getDeclaringTypeName(), signature.getName(), jp.getArgs());
+    }
+
+    public String createCacheKey(Class<?> targetClass, String methodName, Object... args) {
+        return createCacheKey(targetClass.getName(), methodName, args);
+    }
+
+    public void deleteCache(Class<?> targetClass, String methodName, Object... args) {
+        redisUtil.del(createCacheKey(targetClass, methodName, args));
+    }
+
+    public void deleteCacheByPrefix(Class<?> targetClass, String methodName) {
+        String prefix = targetClass.getName() + "." + methodName;
+        Set<String> keys = redisTemplate.keys(prefix + "*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
+
+    private String createCacheKey(String className, String methodName, Object... args) {
+        StringBuilder sbKey = new StringBuilder();
         sbKey.append(className);
         sbKey.append(".");
         sbKey.append(methodName);
-        Object[] args = jp.getArgs();//方法参数值
-        for (Object object : args) {
-            sbKey.append("-");
-            sbKey.append(object);
+        if (args != null) {
+            for (Object object : args) {
+                sbKey.append("-");
+                sbKey.append(object);
+            }
         }
         return sbKey.toString();
     }
 
-
-    //@Around("@annotation(myCache)")
     @Order(1)
     @Around("execution(public * com.peng.service.Impl..*(..)) && @annotation(myCache)")
     public Object around(ProceedingJoinPoint jp, MyCache myCache) {
-//        long startTime = System.currentTimeMillis();
-        //生成Redis中的key
         String key = createCacheKey(jp);
-        //如果有缓存直接返回，没有正常执行并写入缓存
         try {
             if (redisUtil.hasKey(key)) {
                 return redisUtil.get(key);
@@ -55,8 +74,6 @@ public class MyCacheAspect {
         } catch (Throwable t) {
             log.error(t.toString());
             return null;
-        } finally {
-//            log.info("{}  方法执行时间： {}",jp.getSignature().getName(),System.currentTimeMillis()-startTime);
         }
     }
 
