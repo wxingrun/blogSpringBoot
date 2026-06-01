@@ -8,6 +8,8 @@ import com.github.pagehelper.PageInfo;
 import com.peng.entity.Comment;
 import com.peng.mapper.CommentMapper;
 import com.peng.service.ICommentService;
+import com.peng.util.RedisUtil;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -15,6 +17,19 @@ import java.util.List;
 
 @Service
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
+    @Autowired
+    private RedisUtil redisUtil;
+
+    @Override
+    public boolean saveOrUpdate(Comment comment) {
+        boolean result = super.saveOrUpdate(comment);
+        if (result) {
+            String key = "com.peng.service.Impl.CacheServiceImpl.getCommentNum";
+            redisUtil.del(key);
+        }
+        return result;
+    }
+
     @Override
     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
         PageHelper.startPage(pageNum,pageSize);

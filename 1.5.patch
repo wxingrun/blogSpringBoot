@@ -1,0 +1,75 @@
+diff --git a/src/main/java/com/peng/service/ICacheService.java b/src/main/java/com/peng/service/ICacheService.java
+index 8797899..0a843d6 100644
+--- a/src/main/java/com/peng/service/ICacheService.java
++++ b/src/main/java/com/peng/service/ICacheService.java
+@@ -20,4 +20,5 @@ public interface ICacheService {
+     PageInfo<Blog> getPageByTag(Integer pageNum,Long taId);
+     Map findTimeLine();
+     List<Friend> getIndexFriends();
++    void clearCommentCache();
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+index 6f9b627..7843f0f 100644
+--- a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+@@ -5,6 +5,7 @@ import com.github.pagehelper.PageInfo;
+ import com.peng.aspect.MyCache;
+ import com.peng.entity.*;
+ import com.peng.service.*;
++import com.peng.util.RedisUtil;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+@@ -25,6 +26,8 @@ public class CacheServiceImpl implements ICacheService {
+     private ITagService iTagService;
+     @Autowired
+     private IFriendService iFriendService;
++    @Autowired
++    private RedisUtil redisUtil;
+ 
+     @Override
+     @MyCache
+@@ -104,4 +107,10 @@ public class CacheServiceImpl implements ICacheService {
+         return iFriendService.list();
+     }
+ 
++    @Override
++    public void clearCommentCache() {
++        String key = "com.peng.service.Impl.CacheServiceImpl.getCommentNum";
++        redisUtil.del(key);
++    }
++
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+index 062500d..63f6438 100644
+--- a/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CommentServiceImpl.java
+@@ -8,6 +8,8 @@ import com.github.pagehelper.PageInfo;
+ import com.peng.entity.Comment;
+ import com.peng.mapper.CommentMapper;
+ import com.peng.service.ICommentService;
++import com.peng.util.RedisUtil;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+@@ -15,6 +17,19 @@ import java.util.List;
+ 
+ @Service
+ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements ICommentService {
++    @Autowired
++    private RedisUtil redisUtil;
++
++    @Override
++    public boolean saveOrUpdate(Comment comment) {
++        boolean result = super.saveOrUpdate(comment);
++        if (result) {
++            String key = "com.peng.service.Impl.CacheServiceImpl.getCommentNum";
++            redisUtil.del(key);
++        }
++        return result;
++    }
++
+     @Override
+     public PageInfo<Comment> getListByPage(Integer pageNum, Integer pageSize) {
+         PageHelper.startPage(pageNum,pageSize);

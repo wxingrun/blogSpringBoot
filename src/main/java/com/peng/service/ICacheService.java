@@ -20,4 +20,5 @@ public interface ICacheService {
     PageInfo<Blog> getPageByTag(Integer pageNum,Long taId);
     Map findTimeLine();
     List<Friend> getIndexFriends();
+    void clearCommentCache();
 }

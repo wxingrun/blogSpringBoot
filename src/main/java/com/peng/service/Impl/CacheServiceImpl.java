@@ -5,6 +5,7 @@ import com.github.pagehelper.PageInfo;
 import com.peng.aspect.MyCache;
 import com.peng.entity.*;
 import com.peng.service.*;
+import com.peng.util.RedisUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +26,8 @@ public class CacheServiceImpl implements ICacheService {
     private ITagService iTagService;
     @Autowired
     private IFriendService iFriendService;
+    @Autowired
+    private RedisUtil redisUtil;
 
     @Override
     @MyCache
@@ -102,6 +105,12 @@ public class CacheServiceImpl implements ICacheService {
     @MyCache
     public List<Friend> getIndexFriends() {
         return iFriendService.list();
+    }
+
+    @Override
+    public void clearCommentCache() {
+        String key = "com.peng.service.Impl.CacheServiceImpl.getCommentNum";
+        redisUtil.del(key);
     }
 
 }
