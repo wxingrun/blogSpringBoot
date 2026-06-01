@@ -8,6 +8,7 @@ import com.peng.entity.Comment;
 import com.peng.service.IBlogService;
 import com.peng.service.ICommentService;
 import com.peng.util.IpUtil;
+import com.peng.util.RedisUtil;
 import com.rabbitmq.tools.json.JSONUtil;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,9 @@ public class CommentControllers {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
+    @Autowired
+    private RedisUtil redisUtil;
+
     @MyLog
     @GetMapping("/comments/{blId}")
     public String comments(@PathVariable Long blId, Model model) {
@@ -46,13 +50,14 @@ public class CommentControllers {
     @MyLog
     @PostMapping("/comments")
     public String postComments(Comment comment, HttpServletRequest request) {
-        //保存评论
         if (comment.getParentId() <= -1)
             comment.setParentId(null);
         String ipAddress = IpUtil.getIpAddress(request);
         comment.setIpAddress(ipAddress);
         iCommentService.saveOrUpdate(comment);
         rabbitTemplate.convertAndSend("msg-event-exchange", "msg.wx-pn", formatWxMsg(comment));
+        redisUtil.del("com.peng.service.Impl.CacheServiceImpl.getCommentNum");
+        redisUtil.deleteByPattern("com.peng.service.Impl.CacheServiceImpl.getIndexPage-*");
         return "redirect:/comments/" + comment.getBlId();
     }
 

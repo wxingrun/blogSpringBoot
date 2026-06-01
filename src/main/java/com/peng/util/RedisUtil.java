@@ -76,6 +76,13 @@ public final class RedisUtil {
             }
         }
     }
+
+    public void deleteByPattern(String pattern) {
+        Set<String> keys = redisTemplate.keys(pattern);
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
     // ============================String=============================
 
     /**
