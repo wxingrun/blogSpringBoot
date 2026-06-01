@@ -1,6 +1,6 @@
 package com.peng.config;
 
-import org.springframework.amqp.core.AcknowledgeMode;
+import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
@@ -145,6 +145,33 @@ public class RabbitMqConfiguration {
         int maxAttempts = properties.getListener().getSimple().getRetry().getMaxAttempts();
         retryPolicy.setMaxAttempts(maxAttempts);
         return retryPolicy;
+    }
+
+    /**
+     * 定义交换机
+     */
+    @Bean
+    public DirectExchange msgEventExchange() {
+        return new DirectExchange("msg-event-exchange", true, false);
+    }
+
+    /**
+     * 定义队列
+     */
+    @Bean
+    public Queue msgQueue() {
+        return new Queue("msg.queue", true, false, false);
+    }
+
+    /**
+     * 绑定队列到交换机
+     */
+    @Bean
+    public Binding msgQueueBinding() {
+        return BindingBuilder
+                .bind(msgQueue())
+                .to(msgEventExchange())
+                .with("msg.wx-pn");
     }
 }
 

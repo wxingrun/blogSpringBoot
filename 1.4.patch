@@ -1,0 +1,124 @@
+diff --git a/src/main/java/com/peng/config/RabbitMqConfiguration.java b/src/main/java/com/peng/config/RabbitMqConfiguration.java
+index ebd8227..2af7b79 100644
+--- a/src/main/java/com/peng/config/RabbitMqConfiguration.java
++++ b/src/main/java/com/peng/config/RabbitMqConfiguration.java
+@@ -1,6 +1,6 @@
+ package com.peng.config;
+ 
+-import org.springframework.amqp.core.AcknowledgeMode;
++import org.springframework.amqp.core.*;
+ import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
+ import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+@@ -146,5 +146,32 @@ public class RabbitMqConfiguration {
+         retryPolicy.setMaxAttempts(maxAttempts);
+         return retryPolicy;
+     }
++
++    /**
++     * 定义交换机
++     */
++    @Bean
++    public DirectExchange msgEventExchange() {
++        return new DirectExchange("msg-event-exchange", true, false);
++    }
++
++    /**
++     * 定义队列
++     */
++    @Bean
++    public Queue msgQueue() {
++        return new Queue("msg.queue", true, false, false);
++    }
++
++    /**
++     * 绑定队列到交换机
++     */
++    @Bean
++    public Binding msgQueueBinding() {
++        return BindingBuilder
++                .bind(msgQueue())
++                .to(msgEventExchange())
++                .with("msg.wx-pn");
++    }
+ }
+ 
+diff --git a/src/main/java/com/peng/service/ICacheService.java b/src/main/java/com/peng/service/ICacheService.java
+index 8797899..d0879b8 100644
+--- a/src/main/java/com/peng/service/ICacheService.java
++++ b/src/main/java/com/peng/service/ICacheService.java
+@@ -20,4 +20,8 @@ public interface ICacheService {
+     PageInfo<Blog> getPageByTag(Integer pageNum,Long taId);
+     Map findTimeLine();
+     List<Friend> getIndexFriends();
++
++    void clearCommentCountCache();
++
++    void clearIndexPageCache();
+ }
+diff --git a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+index 6f9b627..0c0d9bc 100644
+--- a/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
++++ b/src/main/java/com/peng/service/Impl/CacheServiceImpl.java
+@@ -5,11 +5,13 @@ import com.github.pagehelper.PageInfo;
+ import com.peng.aspect.MyCache;
+ import com.peng.entity.*;
+ import com.peng.service.*;
++import com.peng.util.RedisUtil;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ 
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ 
+ @Service
+ public class CacheServiceImpl implements ICacheService {
+@@ -25,6 +27,8 @@ public class CacheServiceImpl implements ICacheService {
+     private ITagService iTagService;
+     @Autowired
+     private IFriendService iFriendService;
++    @Autowired
++    private RedisUtil redisUtil;
+ 
+     @Override
+     @MyCache
+@@ -104,4 +108,15 @@ public class CacheServiceImpl implements ICacheService {
+         return iFriendService.list();
+     }
+ 
++    @Override
++    public void clearCommentCountCache() {
++        String commentCountKey = "com.peng.service.Impl.CacheServiceImpl.getCommentNum";
++        redisUtil.del(commentCountKey);
++    }
++
++    @Override
++    public void clearIndexPageCache() {
++        redisUtil.delByPattern("com.peng.service.Impl.CacheServiceImpl.getIndexPage*");
++    }
++
+ }
+diff --git a/src/main/java/com/peng/util/RedisUtil.java b/src/main/java/com/peng/util/RedisUtil.java
+index 341244e..05ac359 100644
+--- a/src/main/java/com/peng/util/RedisUtil.java
++++ b/src/main/java/com/peng/util/RedisUtil.java
+@@ -76,6 +76,18 @@ public final class RedisUtil {
+             }
+         }
+     }
++
++    /**
++     * 按模式删除缓存
++     *
++     * @param pattern 模式，如 "prefix*"
++     */
++    public void delByPattern(String pattern) {
++        Set<String> keys = redisTemplate.keys(pattern);
++        if (keys != null && !keys.isEmpty()) {
++            redisTemplate.delete(keys);
++        }
++    }
+     // ============================String=============================
+ 
+     /**

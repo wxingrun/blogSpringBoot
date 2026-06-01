@@ -76,6 +76,18 @@ public final class RedisUtil {
             }
         }
     }
+
+    /**
+     * 按模式删除缓存
+     *
+     * @param pattern 模式，如 "prefix*"
+     */
+    public void delByPattern(String pattern) {
+        Set<String> keys = redisTemplate.keys(pattern);
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
+    }
     // ============================String=============================
 
     /**
